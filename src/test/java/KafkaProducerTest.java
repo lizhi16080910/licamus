@@ -9,15 +9,17 @@
  * **************************************************** * Name: * Date: * Description: ****************************************************** 
  */
 
-import kafka.javaapi.producer.Producer;
-import kafka.producer.KeyedMessage;
-import kafka.producer.Partitioner;
-import kafka.producer.ProducerConfig;
-import kafka.utils.VerifiableProperties;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
+import kafka.producer.Partitioner;
+import kafka.utils.VerifiableProperties;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.errors.AuthorizationException;
+import org.apache.kafka.common.errors.OutOfOrderSequenceException;
+import org.apache.kafka.common.errors.ProducerFencedException;
+import org.apache.kafka.common.serialization.StringSerializer;
+
 import java.io.IOException;
 import java.util.Properties;
 
@@ -38,47 +40,27 @@ public class KafkaProducerTest {
      * @Description: TODO(这里用一句话描述这个方法的作用)
      */
     public static void main(String[] args) throws IOException, InterruptedException {
-
-        String topic = "cdnlog_xns_topic";
-
+    
         Properties props = new Properties();
-
-        props.put("metadata.broker.list",
-                "192.168.100.60:9092,192.168.100.61:9092,192.168.100.62:9092,192.168.100.63:9092,192.168.100.64:9092,192.168.100.65:9092,192.168.100.66:9092,192.168.100.67:9092,192.168.100.68:9092,192.168.100.69:9092");
-        // props.put("zookeeper.connect",
-        // "192.168.100.185:2181,192.168.100.181:2181,192.168.100.182:2181/kafka");
-        props.put("serializer.class", "kafka.serializer.StringEncoder");
-        props.put("key.serializer.class", "kafka.serializer.StringEncoder");
-        // props.put("partitioner.class", "example.producer.SimplePartitioner");
-        props.put("request.required.acks", "1");
-
-        ProducerConfig config = new ProducerConfig(props);
-
-        Producer<String, String> producer = new Producer<String, String>(config);
-        File file = new File("F:\\test\\kans_query_stat.log");
-        BufferedReader reader = null;
-        int i = 0;
+        props.put("bootstrap.servers", "localhost:9092");
+        props.put("transactional.id", "my-transactional-id");
+        KafkaProducer<String, String> producer = new KafkaProducer<>(props, new StringSerializer(), new StringSerializer());
+    
+        producer.initTransactions();
+    
         try {
-            while (true) {
-                reader = new BufferedReader(new FileReader(file));
-                String line = null;
-                while ((line = reader.readLine()) != null) {
-                    String msg = "ctl-zj-122-228-198-148 " + line;
-                    KeyedMessage<String, String> data = new KeyedMessage<String, String>(
-                            "cdnlog_xns_topic", msg);
-                    producer.send(data);
-                    System.out.println(msg);
-                    Thread.sleep(10);
-                    i++;
-                    System.out.println(i);
-                }
-                reader.close();
-            }
-        }
-        catch (Exception e) {
+            producer.beginTransaction();
+            for (int i = 0; i < 100; i++)
+                producer.send(new ProducerRecord<>("my-topic", Integer.toString(i), Integer.toString(i)));
+            producer.commitTransaction();
+        } catch (ProducerFencedException | OutOfOrderSequenceException | AuthorizationException e) {
+            // We can't recover from these exceptions, so our only option is to close the producer and exit.
             producer.close();
-            // reader.close();
+        } catch (KafkaException e) {
+            // For all other exceptions, just abort the transaction and try again.
+            producer.abortTransaction();
         }
+        producer.close();
     }
 
     public static class SimplePartitioner implements Partitioner {

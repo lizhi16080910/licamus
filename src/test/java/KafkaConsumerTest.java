@@ -15,11 +15,12 @@ import kafka.consumer.ConsumerIterator;
 import kafka.consumer.KafkaStream;
 import kafka.javaapi.consumer.ConsumerConnector;
 import kafka.message.MessageAndMetadata;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.TopicPartition;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
+import java.util.*;
 
 /**
  * @ClassName: KafkaConsumerTest
@@ -37,35 +38,70 @@ public class KafkaConsumerTest {
      */
 
     public static void main(String[] args) {
-        String topic = "camus_test";
-        Properties props = new Properties();
-        props.put("auto.offset.reset", "smallest"); // 必须添加该配置，否则读取不到数据
-        props.put("zookeeper.connect", "slave181:2181,slave182:2181,master185:2181");
-
-        props.put("zookeeper.session.timeout.ms", "10000");
-        props.put("zookeeper.sync.time.ms", "2000");
-        props.put("auto.commit.interval.ms", "1000");
-        props.put("group.id", "tt7");
-
-        ConsumerConfig consumerConfig = new ConsumerConfig(props);
-        ConsumerConnector consumerConnector = Consumer.createJavaConsumerConnector(consumerConfig);
-        HashMap<String, Integer> map = new HashMap<String, Integer>();
-        map.put(topic, 1);
-        Map<String, List<KafkaStream<byte[], byte[]>>> topicMessageStreams = consumerConnector
-                .createMessageStreams(map);
-
-        KafkaStream<byte[], byte[]> stream = topicMessageStreams.get(topic).get(0);
-        int a = topicMessageStreams.size();
-        int b = stream.size();
-
-        ConsumerIterator<byte[], byte[]> it = stream.iterator();
-
-        while (it.hasNext()) {
-            System.out.println("ok");
-            MessageAndMetadata<byte[], byte[]> msgAndMetadata = it.next();
-            System.out.println(new String(msgAndMetadata.message()));
-        }
-         consumerConnector.shutdown();
+    
     }
 
+    public static void autoCommit(){
+        Properties props = new Properties();
+        props.put("bootstrap.servers", "localhost:9092");
+        props.put("group.id", "test");
+        props.put("enable.auto.commit", "true");
+        props.put("auto.commit.interval.ms", "1000");
+        props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+        props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+        KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
+        consumer.subscribe(Arrays.asList("foo", "bar"));
+        while (true) {
+            ConsumerRecords<String, String> records = consumer.poll(100);
+            for (ConsumerRecord<String, String> record : records)
+                System.out.printf("offset = %d, key = %s, value = %s%n", record.offset(), record.key(), record.value());
+        }
+        
+        //consumer.close();
+    }
+    
+    public static void  manualCommit(){
+        Properties props = new Properties();
+        props.put("bootstrap.servers", "localhost:9092");
+        props.put("group.id", "test");
+        props.put("enable.auto.commit", "false");
+        props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+        props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+        KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
+        consumer.subscribe(Arrays.asList("foo", "bar"));
+        final int minBatchSize = 200;
+        List<ConsumerRecord<String, String>> buffer = new ArrayList<>();
+        while (true) {
+            ConsumerRecords<String, String> records = consumer.poll(100);
+            for (ConsumerRecord<String, String> record : records) {
+                
+                buffer.add(record);
+            }
+            if (buffer.size() >= minBatchSize) {
+               // insertIntoDb(buffer);
+                consumer.commitSync();
+                buffer.clear();
+            }
+        }
+    }
+    
+    public static void manualParititonAssignment(){
+    
+        Properties props = new Properties();
+        props.put("bootstrap.servers", "localhost:9092");
+        props.put("group.id", "test");
+        props.put("enable.auto.commit", "false");
+        props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+        props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+        KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
+        
+        String topic = "foo";
+        TopicPartition partition0 = new TopicPartition(topic, 0);
+        TopicPartition partition1 = new TopicPartition(topic, 1);
+        consumer.assign(Arrays.asList(partition0, partition1));
+    
+        // 从指定的offset位置开始消费
+        consumer.seek(partition0, 0l);
+    }
+    
 }
